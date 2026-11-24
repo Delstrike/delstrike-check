@@ -1,0 +1,7 @@
+- id: delstrike-check
+  name: delstrike-check
+  description: Local security checks for vibecoded apps (Supabase, Firebase, AI proxies)
+  entry: delstrike-check --fail-on high --quiet --no-color
+  language: python
+  pass_filenames: false
+  always_run: true

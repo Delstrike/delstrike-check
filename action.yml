@@ -1,0 +1,84 @@
+name: delstrike-check
+description: Local security checks for vibecoded apps on Supabase and Firebase. Your code stays in your CI.
+author: DELSTRIKE
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  path:
+    description: Folder to scan
+    default: "."
+  fail-on:
+    description: Fail the job if a finding is at or above this severity (critical, high, medium, low, info, none)
+    default: high
+  all:
+    description: Also report medium and low confidence findings
+    default: "false"
+  deps:
+    description: Check lockfiles against osv.dev (sends only package names, ecosystems and versions)
+    default: "false"
+  sarif:
+    description: Upload results to GitHub code scanning (needs `permissions: security-events: write`)
+    default: "true"
+
+outputs:
+  findings:
+    description: Number of findings reported
+    value: ${{ steps.scan.outputs.findings }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install delstrike-check (from this action's own tag)
+      shell: bash
+      run: python -m pip install --disable-pip-version-check --no-input "${{ github.action_path }}"
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        DC_PATH: ${{ inputs.path }}
+        DC_ALL: ${{ inputs.all }}
+        DC_DEPS: ${{ inputs.deps }}
+      run: |
+        flags=()
+        [ "$DC_ALL" = "true" ] && flags+=(--all)
+        [ "$DC_DEPS" = "true" ] && flags+=(--deps)
+        delstrike-check "$DC_PATH" "${flags[@]}" --format sarif --output delstrike-check.sarif
+        delstrike-check "$DC_PATH" "${flags[@]}" --format json --output delstrike-check.json
+        delstrike-check "$DC_PATH" "${flags[@]}" --format md --output delstrike-check.md
+        cat delstrike-check.md >> "$GITHUB_STEP_SUMMARY"
+        echo "findings=$(python -c 'import json;print(len(json.load(open("delstrike-check.json"))["findings"]))')" >> "$GITHUB_OUTPUT"
+
+    - name: Upload to code scanning
+      if: inputs.sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: delstrike-check.sarif
+        category: delstrike-check
+
+    - name: Apply fail-on
+      shell: bash
+      env:
+        DC_FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        python - <<'PY'
+        import json, os, sys
+        order = ["info", "low", "medium", "high", "critical"]
+        level = os.environ["DC_FAIL_ON"]
+        if level == "none":
+            sys.exit(0)
+        report = json.load(open("delstrike-check.json"))
+        bad = [f for f in report["findings"] if order.index(f["severity"]) >= order.index(level)]
+        for f in bad:
+            print(f"::error file={f['file']},line={f['lines'][0]},title={f['id']}::{f['message']}")
+        if bad:
+            print(f"{len(bad)} finding(s) at or above {level}. Need every finding verified by a person? "
+                  "https://www.delstrike.com/checkpoint?utm_source=action")
+            sys.exit(1)
+        PY
