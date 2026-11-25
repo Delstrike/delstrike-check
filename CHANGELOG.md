@@ -3,7 +3,7 @@
 All notable changes are listed here. The project follows [Semantic Versioning](https://semver.org): a new rule is a
 minor version; a change to the JSON output format (`schema_version`) is a major version.
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-11-25
 
 First public version.
 
